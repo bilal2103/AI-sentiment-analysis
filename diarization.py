@@ -1,5 +1,7 @@
 import os
 import torch
+from dotenv import load_dotenv
+load_dotenv()
 os.environ['SPEECHBRAIN_CACHE_STRATEGY'] = 'copy'
 
 from pyannote.audio import Pipeline
@@ -9,7 +11,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # Replace this with your Hugging Face token
-pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization", use_auth_token="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")
+pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization", use_auth_token=os.getenv("HF_TOKEN"))
 
 # Move pipeline to GPU if available
 pipeline = pipeline.to(device)
