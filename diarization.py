@@ -3,7 +3,6 @@ import torch
 import warnings
 from dotenv import load_dotenv
 from pyannote.audio import Pipeline
-from tqdm import tqdm
 
 # Suppress common warnings for cleaner output
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -34,14 +33,9 @@ class Diarization:
         self.pipeline = self.pipeline.to(device)
         print("✓ Diarization model loaded successfully!")
 
-    def diarize(self, audio_path: str, show_progress: bool = True) -> str:
+    def diarize(self, audio_path: str) -> str:
         print(f"Starting diarization for: {audio_path}")
         
-        if show_progress:
-            print("🔄 Processing audio... (this may take several minutes for long files)")
-            
-        # For now, run without progress hook to avoid compatibility issues
-        # We can show a simple spinner or progress message instead
         diarization = self.pipeline(audio_path)
         
         print("✓ Diarization completed!")

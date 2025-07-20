@@ -1,4 +1,4 @@
-import whisper
+from faster_whisper import WhisperModel
 import soundfile as sf
 import numpy as np
 import torch
@@ -8,10 +8,10 @@ class STT:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using device: {device}")
 
-        self.model = whisper.load_model("large", device=device)
+        self.model = WhisperModel("large-v2", device=device)    
 
     def transcribe(self, audio_path: str) -> str:
-        result = self.model.transcribe(audio_path)
+        result = self.model.transcribe(audio_path, word_timestamps=True)
         return result
     
     def translate(self, audio_path: str) -> str:
