@@ -3,21 +3,29 @@ import soundfile as sf
 import numpy as np
 import torch
 
-# Check if CUDA is available
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Using device: {device}")
+class STT:
+    def __init__(self):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Using device: {device}")
 
-# Load the model (options: tiny, base, small, medium, large)
-model = whisper.load_model("large", device=device)
+        self.model = whisper.load_model("large", device=device)
+
+    def transcribe(self, audio_path: str) -> str:
+        result = self.model.transcribe(audio_path)
+        return result
+    
+    def translate(self, audio_path: str) -> str:
+        result = self.model.transcribe(audio_path, task="translate", language="en")
+        return result
 
 
 # Transcribe the audio file
-result = model.transcribe("arabicSample.wav")
+# result = model.transcribe("arabicSample.wav")
 
-# Print the detected language and confidence
-print(f"Detected language: {result['language']}")
-print(f"Text: {result['text']}")
+# # Print the detected language and confidence
+# print(f"Detected language: {result['language']}")
+# print(f"Text: {result['text']}")
 
-result = model.transcribe("arabicSample.wav", task="translate", language="en")
-print(f"Detected language: {result['language']}")
-print(f"Text: {result['text']}")
+# result = model.transcribe("arabicSample.wav", task="translate", language="en")
+# print(f"Detected language: {result['language']}")
+# print(f"Text: {result['text']}")

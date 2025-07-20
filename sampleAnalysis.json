@@ -1,9 +1,0 @@
-{
-  "summary": "The call is between a customer and a support representative. The customer, identified as Zilfa Qara, expresses confusion and concern regarding end-of-service benefits following her contract completion. She mentions not receiving an exit visa or benefits and asks about her experience letter. The representative tries to clarify the procedures, mentioning delays of 'weeks' and assures follow-up. The customer also requests reminders to be sent to the HR manager and expresses urgency due to a time constraint of 11 remaining days. The call ends with polite exchanges and a commitment to follow up.",
-  "sentimentAnalysisReport": {
-    "overallSentiment": "Frustrated but polite",
-    "customerSentiment": "The customer is clearly confused and slightly frustrated due to the lack of clarity and delay in receiving benefits and documentation after resignation. However, they remain composed and polite throughout the conversation, repeatedly thanking the agent and seeking assistance.",
-    "agentSentiment": "The agent is neutral to slightly reassuring. While they provide vague answers and do not give concrete timelines, they attempt to maintain a calm and cooperative tone.",
-    "reasoning": "The customer repeats concerns about not receiving benefits and exit visa despite contract completion, indicating dissatisfaction. Phrases like 'I don't get any end of benefits' and 'Can you remind this to the HR manager' show the need for support and follow-through. The agent reassures but uses uncertain terms like 'maybe after weeks,' which adds to the customer's anxiety. The overall tone remains respectful and cooperative, with no aggression or hostility from either party."
-  }
-}
