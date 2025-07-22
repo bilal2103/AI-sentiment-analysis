@@ -2,82 +2,135 @@ import os
 from diarization import Diarization
 from stt import STT
 from pydub import AudioSegment
+import json
 
 diarization = Diarization()
 stt = STT()
 
+def Segment(segment):
+    turn, _, speaker = segment
+    return {
+        "start": turn.start,
+        "stop": turn.end,
+        "speaker": speaker
+    }
 def obtainSlice(filePath, startTime, endTime, outputFilePath):
+    if endTime - startTime < 0.5:
+        return False
     audio = AudioSegment.from_wav(filePath)
     audio = audio[startTime*1000:endTime*1000]
     audio.export(outputFilePath, format="wav")
+    return True
 
+def merge_segments(segments):
+    # merge adjacent segments if they have the same speaker and are close enough
+    merged = []
+    for segment in segments:
+        if not merged:
+            merged.append(segment)
+            continue
+        if merged[-1]["speaker"] == segment["speaker"]:
+                merged[-1]["stop"] = segment["stop"]
+                continue
+        merged.append(segment)
+    return merged
 def RunPipeline(audio_path: str):
 
-    diarization_result = diarization.diarize(audio_path)
-    segments = list(diarization_result.itertracks(yield_label=True))
+    # diarization_result = diarization.diarize(audio_path)
+    # segments = list(diarization_result.itertracks(yield_label=True))
+    # segments = [Segment(segment) for segment in segments]
+    with open("diarization.json", "r") as f:
+        segments = json.load(f)
+    segments = merge_segments(segments)
+    nonOverlappingSegments = []
+    for segment in segments:
+        if len(nonOverlappingSegments) == 0:
+            nonOverlappingSegments.append(segment)
+            continue
+        if segment['speaker'] == nonOverlappingSegments[-1]['speaker']:
+            print("HOW CAN THIS BE?")
+            exit()
+        if segment['start'] < nonOverlappingSegments[-1]['stop']:
+            print("Found over laping segments: ", end = "")
+            print(nonOverlappingSegments[-1], end = ", ")
+            print(segment)
+            boundary = nonOverlappingSegments[-1]['stop']
+            nonOverlappingSegments[-1]['stop'] = segment['start'] - 0.1
+            segment['start'] = boundary + 0.1
+        nonOverlappingSegments.append(segment)
+    
     i = 0
-    totalSegments = len(segments)
+    script = []
+    totalSegments = len(nonOverlappingSegments)
     os.makedirs("tempFiles", exist_ok=True)
-    speakerWiseSegments = []
-    while i < len(segments):
-        turn, _, speaker = segments[i]
-        currentSpeaker = speaker
-        j = i+1
-        startTime = turn.start
-        endTime = turn.end
-        while j < len(segments):
-            nextTurn, _, nextSpeaker = segments[j]
-            if nextSpeaker == currentSpeaker:
-                j += 1
-                endTime = nextTurn.end
-            else:
-                break
-        speakerWiseSegments.append((startTime, endTime, speaker))
-        i = j
-    print(f"Total segments: {totalSegments}")
-    print(f"Speaker wise segments: {len(speakerWiseSegments)}")
-    i = 0
-    for startTime, endTime, speaker in speakerWiseSegments:
-        outputFilePath = f"tempFiles/{speaker}_{i}.wav"
-        obtainSlice(audio_path, startTime, endTime, outputFilePath)
-        segments, info = stt.transcribe(outputFilePath)
-        print(f"speaker {speaker}:", end = "")
-        for segment in segments:
-            print(f"{segment.text}", end = " ")
-        print()
-        i += 1
 
-def CompareTimestamps(audio_path):
-    diarization_result = diarization.diarize(audio_path)
-    diarization_segments = list(diarization_result.itertracks(yield_label=True))
-    totalSegments = len(diarization_segments)
-    transcription_segments, info = stt.transcribe(audio_path)
-    transcription_segments = list(transcription_segments)  # Convert generator to list
     print(f"Total segments: {totalSegments}")
-    print(f"Transcription segments: {len(transcription_segments)}")
-    print("Transcription info: ", info)
     i = 0
-    for i in range(min(totalSegments, len(transcription_segments))):
-        turn, _, speaker = diarization_segments[i]
-        transcriptionSegment = transcription_segments[i]
-        print(f"Segment {i}: {turn.start} - {turn.end} - {speaker}")
-        print(f"Transcription segment {i}: {transcriptionSegment.start} - {transcriptionSegment.end}, {transcriptionSegment.text}")
+    debugging = []
+    for segment in nonOverlappingSegments:
+        outputFilePath = f"tempFiles/{segment['speaker']}_{i}.wav"
+        result = obtainSlice(audio_path, segment['start'], segment['stop'], outputFilePath)
+        if not result:
+            print(f"Excluding {outputFilePath}")
+            i += 1
+            continue
+        print(f"Transcribing {outputFilePath}")
+        transcriptionSegments, info = stt.transcribe(outputFilePath)
+        transcriptionSegments = list(transcriptionSegments)
+        if len(transcriptionSegments) > 0:
+            # Convert Segment objects to dictionaries for JSON serialization
+            segments_dict = []
+            dialogue = {
+                "text": "",
+                "speaker": segment['speaker'],
+            }
+            for transcriptionSegment in transcriptionSegments:
+                dialogue['text'] += transcriptionSegment.text
+                segments_dict.append({
+                    "id": transcriptionSegment.id,
+                    "seek": transcriptionSegment.seek,
+                    "start": transcriptionSegment.start,
+                    "end": transcriptionSegment.end,
+                    "text": transcriptionSegment.text,
+                    "tokens": transcriptionSegment.tokens,
+                    "temperature": transcriptionSegment.temperature,
+                    "avg_logprob": transcriptionSegment.avg_logprob,
+                    "compression_ratio": transcriptionSegment.compression_ratio,
+                    "no_speech_prob": transcriptionSegment.no_speech_prob
+                })
+            
+            # Convert TranscriptionInfo to dictionary
+            info_dict = {
+                "language": info.language,
+                "language_probability": info.language_probability,
+                "duration": info.duration,
+                "duration_after_vad": info.duration_after_vad,
+                "all_language_probs": info.all_language_probs
+            }
+            debugging.append({
+                "segments": segments_dict,
+                "info": info_dict
+            })
+            script.append(dialogue)
+                
         i += 1
-    while i < totalSegments:
-        turn, _, speaker = diarization_segments[i]
-        print(f"Segment {i}: {turn.start} - {turn.end} - {speaker}")
-        i += 1
-    while i < len(transcription_segments):
-        transcriptionSegment = transcription_segments[i]
-        print(f"Transcription segment {i}: {transcriptionSegment.start} - {transcriptionSegment.end}, {transcriptionSegment.text}")
-        i += 1
+    with open("debugging.json", "w") as f:
+        json.dump(debugging, f)
+    with open("script.json", "w") as f:
+        json.dump(script, f)
+    print("Script saved to script.json")
 
+def GetResponse(messages):
+    pass
+def SummarizeAndAnalyze():
+    with open("script.json", "r") as f:
+        script = json.load(f)
+    messages = []
+    return GetResponse(messages)
 if __name__ == "__main__":
     audio_file = "SampleAudios/recording2.wav"
-    
-    #if os.path.exists(audio_file):
-        #RunPipeline(audio_file)
-    CompareTimestamps(audio_file)
+    RunPipeline(audio_file)
+    SummarizeAndAnalyze()
     
         
     
