@@ -1,11 +1,14 @@
 import os
-from diarization import Diarization
-from stt import STT
+import shutil
+from DiarizationService import Diarization
+from STTService import STT
 from pydub import AudioSegment
 import json
+from LLMService import LLMService
 
 diarization = Diarization()
 stt = STT()
+llm = LLMService()
 
 def Segment(segment):
     turn, _, speaker = segment
@@ -36,11 +39,10 @@ def merge_segments(segments):
     return merged
 def RunPipeline(audio_path: str):
 
-    # diarization_result = diarization.diarize(audio_path)
-    # segments = list(diarization_result.itertracks(yield_label=True))
-    # segments = [Segment(segment) for segment in segments]
-    with open("diarization.json", "r") as f:
-        segments = json.load(f)
+    diarization_result = diarization.diarize(audio_path)
+    segments = list(diarization_result.itertracks(yield_label=True))
+    segments = [Segment(segment) for segment in segments]
+    
     segments = merge_segments(segments)
     nonOverlappingSegments = []
     for segment in segments:
@@ -119,18 +121,26 @@ def RunPipeline(audio_path: str):
     with open("script.json", "w") as f:
         json.dump(script, f)
     print("Script saved to script.json")
+    return script
 
-def GetResponse(messages):
-    pass
-def SummarizeAndAnalyze():
-    with open("script.json", "r") as f:
-        script = json.load(f)
-    messages = []
-    return GetResponse(messages)
+
 if __name__ == "__main__":
-    audio_file = "SampleAudios/recording2.wav"
-    RunPipeline(audio_file)
-    SummarizeAndAnalyze()
+    audio_file = "SampleAudios/recording4.wav"
+    script = RunPipeline(audio_file)
+    response = llm.SummarizeAndAnalyze(script)
+    try:
+        responseDict = json.loads(response)
+        print(responseDict["summary"])
+        print(responseDict["sentimentAnalysis"])
+    except Exception as e:
+        print(f"Error parsing response: {e}")
+    
+    # Clean up temporary files
+    try:
+        shutil.rmtree("tempFiles")
+        print("Temporary files cleaned up successfully")
+    except Exception as e:
+        print(f"Error cleaning up temporary files: {e}")
     
         
     
