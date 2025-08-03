@@ -1,13 +1,13 @@
 import os
 import shutil
 from DiarizationService import Diarization
-from STTService import STT
-from pydub import AudioSegment
+from STTService import STT, GroqSTT
 import json
 from LLMService import LLMService
+from pydub import AudioSegment
 
 diarization = Diarization()
-stt = STT()
+stt = GroqSTT()
 llm = LLMService()
 
 def Segment(segment):
@@ -21,7 +21,8 @@ def obtainSlice(filePath, startTime, endTime, outputFilePath):
     if endTime - startTime < 0.5:
         return False
     audio = AudioSegment.from_wav(filePath)
-    audio = audio[startTime*1000:endTime*1000]
+    audio = audio[(startTime - 0.5)*1000:(endTime + 0.5)*1000]
+    audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
     audio.export(outputFilePath, format="wav")
     return True
 
@@ -38,7 +39,6 @@ def merge_segments(segments):
         merged.append(segment)
     return merged
 def RunPipeline(audio_path: str):
-
     diarization_result = diarization.diarize(audio_path)
     segments = list(diarization_result.itertracks(yield_label=True))
     segments = [Segment(segment) for segment in segments]
@@ -53,12 +53,9 @@ def RunPipeline(audio_path: str):
             print("HOW CAN THIS BE?")
             exit()
         if segment['start'] < nonOverlappingSegments[-1]['stop']:
-            print("Found over laping segments: ", end = "")
-            print(nonOverlappingSegments[-1], end = ", ")
-            print(segment)
             boundary = nonOverlappingSegments[-1]['stop']
-            nonOverlappingSegments[-1]['stop'] = segment['start'] - 0.1
-            segment['start'] = boundary + 0.1
+            nonOverlappingSegments[-1]['stop'] = segment['start'] - 0.5
+            segment['start'] = boundary + 0.5
         nonOverlappingSegments.append(segment)
     
     i = 0
@@ -68,7 +65,6 @@ def RunPipeline(audio_path: str):
 
     print(f"Total segments: {totalSegments}")
     i = 0
-    debugging = []
     for segment in nonOverlappingSegments:
         outputFilePath = f"tempFiles/{segment['speaker']}_{i}.wav"
         result = obtainSlice(audio_path, segment['start'], segment['stop'], outputFilePath)
@@ -76,62 +72,47 @@ def RunPipeline(audio_path: str):
             print(f"Excluding {outputFilePath}")
             i += 1
             continue
-        print(f"Transcribing {outputFilePath}")
-        transcriptionSegments, info = stt.transcribe(outputFilePath)
-        transcriptionSegments = list(transcriptionSegments)
-        if len(transcriptionSegments) > 0:
-            # Convert Segment objects to dictionaries for JSON serialization
-            segments_dict = []
+        print(f"Translating {outputFilePath}")
+        transcription = stt.transcribe(outputFilePath, task="translate")
+        if len(transcription) > 0:
             dialogue = {
-                "text": "",
+                "text": transcription,
                 "speaker": segment['speaker'],
             }
-            for transcriptionSegment in transcriptionSegments:
-                dialogue['text'] += transcriptionSegment.text
-                segments_dict.append({
-                    "id": transcriptionSegment.id,
-                    "seek": transcriptionSegment.seek,
-                    "start": transcriptionSegment.start,
-                    "end": transcriptionSegment.end,
-                    "text": transcriptionSegment.text,
-                    "tokens": transcriptionSegment.tokens,
-                    "temperature": transcriptionSegment.temperature,
-                    "avg_logprob": transcriptionSegment.avg_logprob,
-                    "compression_ratio": transcriptionSegment.compression_ratio,
-                    "no_speech_prob": transcriptionSegment.no_speech_prob
-                })
-            
-            # Convert TranscriptionInfo to dictionary
-            info_dict = {
-                "language": info.language,
-                "language_probability": info.language_probability,
-                "duration": info.duration,
-                "duration_after_vad": info.duration_after_vad,
-                "all_language_probs": info.all_language_probs
-            }
-            debugging.append({
-                "segments": segments_dict,
-                "info": info_dict
-            })
             script.append(dialogue)
-                
         i += 1
-    with open("debugging.json", "w") as f:
-        json.dump(debugging, f)
-    with open("script.json", "w") as f:
-        json.dump(script, f)
-    print("Script saved to script.json")
+    with open("script_cleaned.json", "w", encoding="utf-8") as f:
+        json.dump(script, f, indent=4)
+    print("Script saved to script_clean.json")
     return script
 
 
 if __name__ == "__main__":
-    audio_file = "SampleAudios/recording4.wav"
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("Please provide an audio file path as argument")
+        print("Usage: python pipeline.py <audio_file>")
+        sys.exit(1)
+        
+    audio_file = sys.argv[1]
+    audio_file = "SampleAudios/" + audio_file
     script = RunPipeline(audio_file)
+    audio = AudioSegment.from_wav(audio_file)
+    audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+    audio.export("tempFiles/complete.wav", format="wav")
+    completeScript = stt.transcribe("tempFiles/complete.wav", task="translate")
+    print("Complete script: ", completeScript)
     response = llm.SummarizeAndAnalyze(script)
+    print("Response raw: ", response)
     try:
         responseDict = json.loads(response)
+        print("===================================\nSummary:\n===================================")
         print(responseDict["summary"])
-        print(responseDict["sentimentAnalysis"])
+        print("===================================\nSentiment Analysis:\n===================================")
+        print(f"Representative: {responseDict['sentimentAnalysis']['representative']}")
+        print(f"Customer: {responseDict['sentimentAnalysis']['customer']}")
+        print("===================================\n===================================")
     except Exception as e:
         print(f"Error parsing response: {e}")
     
