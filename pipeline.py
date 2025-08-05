@@ -1,7 +1,7 @@
 import os
 import shutil
 from DiarizationService import Diarization
-from STTService import STT, GroqSTT
+from STTService import GroqSTT
 import json
 from LLMService import LLMService
 from pydub import AudioSegment
@@ -17,74 +17,62 @@ def Segment(segment):
         "stop": turn.end,
         "speaker": speaker
     }
-def obtainSlice(filePath, startTime, endTime, outputFilePath):
-    if endTime - startTime < 0.5:
-        return False
-    audio = AudioSegment.from_wav(filePath)
-    audio = audio[(startTime - 0.5)*1000:(endTime + 0.5)*1000]
-    audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-    audio.export(outputFilePath, format="wav")
-    return True
 
-def merge_segments(segments):
-    # merge adjacent segments if they have the same speaker and are close enough
-    merged = []
-    for segment in segments:
-        if not merged:
-            merged.append(segment)
-            continue
-        if merged[-1]["speaker"] == segment["speaker"]:
-                merged[-1]["stop"] = segment["stop"]
-                continue
-        merged.append(segment)
-    return merged
+def UseIOU(transcriptionSegments, segments):
+    def ComputeIOU(whisper_segment, pyannote_segment):
+        whisper_start, whisper_end = whisper_segment["start"], whisper_segment["end"]
+        pyannote_start, pyannote_end = pyannote_segment["start"], pyannote_segment["stop"]
+
+        intersection_start = max(whisper_start, pyannote_start)
+        intersection_end = min(whisper_end, pyannote_end)
+        intersection = max(0, intersection_end - intersection_start)
+
+        union_start = min(whisper_start, pyannote_start)
+        union_end = max(whisper_end, pyannote_end)
+        union = union_end - union_start
+
+        iou = intersection / union if union > 0 else 0
+        return iou
+    mapping = {}
+    for transcriptionSegment in transcriptionSegments:
+        bestIOU = -1
+        bestSegment = None
+        for diarizationSegment in segments:
+            iou = ComputeIOU(transcriptionSegment, diarizationSegment)
+            if iou > bestIOU:
+                bestIOU = iou
+                bestSegment = diarizationSegment
+        mapping[transcriptionSegment["id"]] = bestSegment
+    return mapping
 def RunPipeline(audio_path: str):
-    diarization_result = diarization.diarize(audio_path)
-    segments = list(diarization_result.itertracks(yield_label=True))
-    segments = [Segment(segment) for segment in segments]
+    # Create cleanedFiles directory if it doesn't exist
+    os.makedirs("cleanedFiles", exist_ok=True)
     
-    segments = merge_segments(segments)
-    nonOverlappingSegments = []
-    for segment in segments:
-        if len(nonOverlappingSegments) == 0:
-            nonOverlappingSegments.append(segment)
-            continue
-        if segment['speaker'] == nonOverlappingSegments[-1]['speaker']:
-            print("HOW CAN THIS BE?")
-            exit()
-        if segment['start'] < nonOverlappingSegments[-1]['stop']:
-            boundary = nonOverlappingSegments[-1]['stop']
-            nonOverlappingSegments[-1]['stop'] = segment['start'] - 0.5
-            segment['start'] = boundary + 0.5
-        nonOverlappingSegments.append(segment)
-    
-    i = 0
+    cleanedAudioPath = f"cleanedFiles/{audio_path.split('/')[-1]}"
+    audio = AudioSegment.from_wav(audio_path)
+    audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+    audio.export(cleanedAudioPath, format="wav")
+    transcriptionResult = stt.transcribe(cleanedAudioPath, task="translate")
+    transcriptionSegments = list(transcriptionResult.segments)
+    diarization_result = diarization.diarize(cleanedAudioPath)
+    diarizationSegments = [Segment(segment) for segment in list(diarization_result.itertracks(yield_label=True))]
+    mapping = UseIOU(transcriptionSegments, diarizationSegments)
     script = []
-    totalSegments = len(nonOverlappingSegments)
-    os.makedirs("tempFiles", exist_ok=True)
-
-    print(f"Total segments: {totalSegments}")
-    i = 0
-    for segment in nonOverlappingSegments:
-        outputFilePath = f"tempFiles/{segment['speaker']}_{i}.wav"
-        result = obtainSlice(audio_path, segment['start'], segment['stop'], outputFilePath)
-        if not result:
-            print(f"Excluding {outputFilePath}")
-            i += 1
-            continue
-        print(f"Translating {outputFilePath}")
-        transcription = stt.transcribe(outputFilePath, task="translate")
-        if len(transcription) > 0:
-            dialogue = {
-                "text": transcription,
-                "speaker": segment['speaker'],
-            }
-            script.append(dialogue)
-        i += 1
-    with open("script_cleaned.json", "w", encoding="utf-8") as f:
+    for key, value in mapping.items():
+        text = transcriptionSegments[key]["text"]
+        startTime = transcriptionSegments[key]["start"]
+        endTime = transcriptionSegments[key]["end"]
+        speaker = value["speaker"]
+        script.append({
+            "text": text,
+            "speaker": speaker,
+            "start": startTime,
+            "end": endTime
+        })
+    with open("script.json", "w", encoding="utf-8") as f:
         json.dump(script, f, indent=4)
-    print("Script saved to script_clean.json")
-    return script
+    response = llm.SummarizeAndAnalyze(script)
+    return response
 
 
 if __name__ == "__main__":
@@ -96,15 +84,8 @@ if __name__ == "__main__":
         sys.exit(1)
         
     audio_file = sys.argv[1]
-    audio_file = "SampleAudios/" + audio_file
-    script = RunPipeline(audio_file)
-    audio = AudioSegment.from_wav(audio_file)
-    audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-    audio.export("tempFiles/complete.wav", format="wav")
-    completeScript = stt.transcribe("tempFiles/complete.wav", task="translate")
-    print("Complete script: ", completeScript)
-    response = llm.SummarizeAndAnalyze(script)
-    print("Response raw: ", response)
+    audio_file = audio_file
+    response = RunPipeline(audio_file)
     try:
         responseDict = json.loads(response)
         print("===================================\nSummary:\n===================================")
@@ -118,7 +99,7 @@ if __name__ == "__main__":
     
     # Clean up temporary files
     try:
-        shutil.rmtree("tempFiles")
+        shutil.rmtree("cleanedFiles")
         print("Temporary files cleaned up successfully")
     except Exception as e:
         print(f"Error cleaning up temporary files: {e}")
