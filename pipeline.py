@@ -56,6 +56,27 @@ def RunPipeline(audio_path: str):
     transcriptionSegments = list(transcriptionResult.segments)
     diarization_result = diarization.diarize(cleanedAudioPath)
     diarizationSegments = [Segment(segment) for segment in list(diarization_result.itertracks(yield_label=True))]
+    speakerCounts = {}
+    for segment in diarizationSegments:
+        if segment["speaker"] not in speakerCounts:
+            speakerCounts[segment["speaker"]] = 1
+        else:
+            speakerCounts[segment["speaker"]] += 1
+    if len(speakerCounts) > 2:
+        print("More than 2 speakers detected by pyannote. Ensuring there are only 2 speakers...")
+        minCount = 9999
+        minSpeaker = None
+        for key, value in speakerCounts.items():
+            if value < minCount:
+                minCount = value
+                minSpeaker = key
+        for segment in diarizationSegments:
+            if segment["speaker"] == minSpeaker:
+                print(f"Removing {segment}")
+                diarizationSegments.remove(segment)
+        print(f"Removed {minCount} segments of {minSpeaker}")
+        print(f"Remaining segments: {len(diarizationSegments)}")
+
     mapping = UseIOU(transcriptionSegments, diarizationSegments)
     script = []
     for key, value in mapping.items():
@@ -63,14 +84,17 @@ def RunPipeline(audio_path: str):
         startTime = transcriptionSegments[key]["start"]
         endTime = transcriptionSegments[key]["end"]
         speaker = value["speaker"]
+        
         script.append({
             "text": text,
             "speaker": speaker,
             "start": startTime,
             "end": endTime
         })
+    
     with open("script.json", "w", encoding="utf-8") as f:
         json.dump(script, f, indent=4)
+    
     response = llm.SummarizeAndAnalyze(script)
     return response
 
@@ -95,7 +119,8 @@ if __name__ == "__main__":
         print(f"Customer: {responseDict['sentimentAnalysis']['customer']}")
         print("===================================\n===================================")
     except Exception as e:
-        print(f"Error parsing response: {e}")
+        print(f"LLM didn't provide a valid json. Printing raw response:")
+        print(response)
     
     # Clean up temporary files
     try:
