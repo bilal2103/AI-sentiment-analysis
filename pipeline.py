@@ -5,10 +5,37 @@ from STTService import GroqSTT
 import json
 from LLMService import LLMService
 from pydub import AudioSegment
+import re
 
 diarization = Diarization()
 stt = GroqSTT()
 llm = LLMService()
+
+def extract_json_from_response(response):
+    try:
+        return json.loads(response.strip())
+    except json.JSONDecodeError:
+        pass
+    
+    json_pattern = r'```(?:json)?\s*\n?(.*?)\n?```'
+    matches = re.findall(json_pattern, response, re.DOTALL | re.IGNORECASE)
+    
+    for match in matches:
+        try:
+            return json.loads(match.strip())
+        except json.JSONDecodeError:
+            continue
+    
+    json_like_pattern = r'\{.*\}'
+    matches = re.findall(json_like_pattern, response, re.DOTALL)
+    
+    for match in matches:
+        try:
+            return json.loads(match.strip())
+        except json.JSONDecodeError:
+            continue
+    
+    return None
 
 def Segment(segment):
     turn, _, speaker = segment
@@ -45,7 +72,6 @@ def UseIOU(transcriptionSegments, segments):
         mapping[transcriptionSegment["id"]] = bestSegment
     return mapping
 def RunPipeline(audio_path: str):
-    # Create cleanedFiles directory if it doesn't exist
     os.makedirs("cleanedFiles", exist_ok=True)
     
     cleanedAudioPath = f"cleanedFiles/{audio_path.split('/')[-1]}"
@@ -64,17 +90,31 @@ def RunPipeline(audio_path: str):
             speakerCounts[segment["speaker"]] += 1
     if len(speakerCounts) > 2:
         print("More than 2 speakers detected by pyannote. Ensuring there are only 2 speakers...")
-        minCount = 9999
-        minSpeaker = None
-        for key, value in speakerCounts.items():
-            if value < minCount:
-                minCount = value
-                minSpeaker = key
+        print(f"Speaker counts: {speakerCounts}")
+        
+        # Sort speakers by count (descending) and keep only top 2
+        sorted_speakers = sorted(speakerCounts.items(), key=lambda x: x[1], reverse=True)
+        speakers_to_keep = [speaker for speaker, count in sorted_speakers[:2]]
+        speakers_to_remove = [speaker for speaker, count in sorted_speakers[2:]]
+        
+        print(f"Keeping speakers: {speakers_to_keep}")
+        print(f"Removing speakers: {speakers_to_remove}")
+        
+        # Remove segments from speakers we don't want to keep
+        segments_removed = 0
+        segments_to_remove = []
+        
         for segment in diarizationSegments:
-            if segment["speaker"] == minSpeaker:
-                print(f"Removing {segment}")
-                diarizationSegments.remove(segment)
-        print(f"Removed {minCount} segments of {minSpeaker}")
+            if segment["speaker"] in speakers_to_remove:
+                segments_to_remove.append(segment)
+                segments_removed += 1
+        
+        # Remove segments (iterate backwards to avoid index issues)
+        for segment in segments_to_remove:
+            diarizationSegments.remove(segment)
+            print(f"Removing segment: {segment}")
+        
+        print(f"Removed {segments_removed} segments from {len(speakers_to_remove)} speakers")
         print(f"Remaining segments: {len(diarizationSegments)}")
 
     mapping = UseIOU(transcriptionSegments, diarizationSegments)
@@ -94,8 +134,31 @@ def RunPipeline(audio_path: str):
     
     with open("script.json", "w", encoding="utf-8") as f:
         json.dump(script, f, indent=4)
-    
-    response = llm.SummarizeAndAnalyze(script)
+    models = ["llama-3.3-70b-versatile", "meta-llama/llama-guard-4-12b","llama-3.1-8b-instant","gemma2-9b-it"]
+    for model in models:
+        response = llm.SummarizeAndAnalyze(script, model)
+        print(f"===================================\nSummary for model {model}:\n===================================")
+        
+        # Try to extract JSON from the response
+        responseDict = extract_json_from_response(response)
+        
+        if responseDict:
+            try:
+                print(responseDict["summary"])
+                print("===================================\nSentiment Analysis:\n===================================")
+                print(f"Representative: {responseDict['sentimentAnalysis']['representative']}")
+                print(f"Customer: {responseDict['sentimentAnalysis']['customer']}")
+                print("===================================\n===================================")
+            except KeyError as e:
+                print(f"JSON structure is missing expected key: {e}")
+                print("Available keys:", list(responseDict.keys()))
+                print("Raw JSON content:")
+                print(json.dumps(responseDict, indent=2))
+        else:
+            print(f"Could not extract valid JSON from response. Printing raw response:")
+            print("="*50)
+            print(response)
+            print("="*50)
     return response
 
 
@@ -110,17 +173,7 @@ if __name__ == "__main__":
     audio_file = sys.argv[1]
     audio_file = audio_file
     response = RunPipeline(audio_file)
-    try:
-        responseDict = json.loads(response)
-        print("===================================\nSummary:\n===================================")
-        print(responseDict["summary"])
-        print("===================================\nSentiment Analysis:\n===================================")
-        print(f"Representative: {responseDict['sentimentAnalysis']['representative']}")
-        print(f"Customer: {responseDict['sentimentAnalysis']['customer']}")
-        print("===================================\n===================================")
-    except Exception as e:
-        print(f"LLM didn't provide a valid json. Printing raw response:")
-        print(response)
+    
     
     # Clean up temporary files
     try:
