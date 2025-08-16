@@ -134,9 +134,9 @@ def RunPipeline(audio_path: str):
     
     with open("script.json", "w", encoding="utf-8") as f:
         json.dump(script, f, indent=4)
-    models = ["llama-3.3-70b-versatile", "meta-llama/llama-guard-4-12b","llama-3.1-8b-instant","gemma2-9b-it"]
+    models = ["llama-3.3-70b-versatile"]
     for model in models:
-        response = llm.SummarizeAndAnalyze(script, model)
+        response = llm.SummarizeAndAnalyze(script)
         print(f"===================================\nSummary for model {model}:\n===================================")
         
         # Try to extract JSON from the response
