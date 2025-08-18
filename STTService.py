@@ -13,6 +13,7 @@ class GroqSTT:
                 if task == "translate":
                     result = self.client.audio.translations.create(
                         file=(audio_path, file.read()),
+                        prompt = "Please transcribe this call recording between a customer care representative of SEDER group, and a troubled customer.",
                         model="whisper-large-v3",
                         response_format="verbose_json",
                         temperature=0.0,

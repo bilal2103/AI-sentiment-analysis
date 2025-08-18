@@ -71,7 +71,7 @@ def UseIOU(transcriptionSegments, segments):
                 bestSegment = diarizationSegment
         mapping[transcriptionSegment["id"]] = bestSegment
     return mapping
-def RunPipeline(audio_path: str):
+def RunPipeline(audio_path: str, language: str = None):
     os.makedirs("cleanedFiles", exist_ok=True)
     
     cleanedAudioPath = f"cleanedFiles/{audio_path.split('/')[-1]}"
@@ -134,32 +134,46 @@ def RunPipeline(audio_path: str):
     
     with open("script.json", "w", encoding="utf-8") as f:
         json.dump(script, f, indent=4)
-    models = ["llama-3.3-70b-versatile"]
-    for model in models:
-        response = llm.SummarizeAndAnalyze(script)
-        print(f"===================================\nSummary for model {model}:\n===================================")
-        
-        # Try to extract JSON from the response
-        responseDict = extract_json_from_response(response)
-        
-        if responseDict:
-            try:
-                print(responseDict["summary"])
-                print("===================================\nSentiment Analysis:\n===================================")
-                print(f"Representative: {responseDict['sentimentAnalysis']['representative']}")
-                print(f"Customer: {responseDict['sentimentAnalysis']['customer']}")
-                print("===================================\n===================================")
-            except KeyError as e:
-                print(f"JSON structure is missing expected key: {e}")
-                print("Available keys:", list(responseDict.keys()))
-                print("Raw JSON content:")
-                print(json.dumps(responseDict, indent=2))
-        else:
-            print(f"Could not extract valid JSON from response. Printing raw response:")
-            print("="*50)
-            print(response)
-            print("="*50)
-    return response
+    response = llm.SummarizeAndAnalyze(script)
+    scores = llm.ScoreCall(script)
+    responseDict = extract_json_from_response(response)
+    scoresDict = extract_json_from_response(scores)
+    if responseDict:
+        try:
+            if language and language == "arabic":
+                responseDict["summary"] = llm.TranslateToArabic(responseDict["summary"])
+                responseDict["mainIssue"] = llm.TranslateToArabic(responseDict["mainIssue"])
+                responseDict["sentimentAnalysis"]["representative"]["sentiment"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["representative"]["sentiment"])
+                responseDict["sentimentAnalysis"]["representative"]["reasoning"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["representative"]["reasoning"])
+                responseDict["sentimentAnalysis"]["customer"]["sentiment"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["customer"]["sentiment"])
+                responseDict["sentimentAnalysis"]["customer"]["reasoning"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["customer"]["reasoning"])
+            print(responseDict["summary"])
+            print("===================================\nSentiment Analysis:\n===================================")
+            print(f"Representative: {responseDict['sentimentAnalysis']['representative']}")
+            print(f"Customer: {responseDict['sentimentAnalysis']['customer']}")
+            print("===================================\n===================================")
+            print(f"Main Issue: {responseDict['mainIssue']}")
+            print("===================================\n===================================")
+
+            totalScore = 0
+            for score_item in scoresDict:
+                for criteriaKey, criteriaValue in score_item.items():
+                    print(f"Criteria: {criteriaKey}")
+                    print(f"Score: {criteriaValue['score']}")
+                    print(f"Reasoning: {criteriaValue['reasoning']}")
+                    totalScore += criteriaValue["score"]
+            print(f"Total score: {totalScore}")
+
+        except KeyError as e:
+            print(f"JSON structure is missing expected key: {e}")
+            print("Available keys:", list(responseDict.keys()))
+            print("Raw JSON content:")
+            print(json.dumps(responseDict, indent=2))
+    else:
+        print(f"Could not extract valid JSON from response. Printing raw response:")
+        print("="*50)
+        print(response)
+    return responseDict, totalScore
 
 
 if __name__ == "__main__":
@@ -172,9 +186,7 @@ if __name__ == "__main__":
         
     audio_file = sys.argv[1]
     audio_file = audio_file
-    response = RunPipeline(audio_file)
-    
-    
+    response, totalScore = RunPipeline(audio_file, "arabic")
     # Clean up temporary files
     try:
         shutil.rmtree("cleanedFiles")
