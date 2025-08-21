@@ -34,39 +34,33 @@ scoringPromptRoleAssigning: |
 
 scoringGuide: |
   You need to grade the customer care representative's responses to the customer's issues, based on the provided criteria. A higher score is better. Give full score for when the criteria is not applicable.
-  Here's the criteria, along with the score out of which you need to grade the call recording:
-  Criteria category => Greeting and call opening
+  Here's the criteria, along with the score out of which you need to grade the call recording - the format followed below is: <criteria_id> => <criteria> (<A guideline for the criteria>) [<score out of which you need to grade the call recording>]:
   crit_1 => Greeting in a professional and appropriate manner. [Provide a score out of 3.]
   crit_2 => Clearly stating name and company (Customer care representative should state their name and the company they represent i.e. SEDER group). [Provide a score out of 4.]
   crit_3 => Offering help politely. [Provide a score out of 3.]
   crit_4 => Asking for the caller's name and greeting them. (Inapplicable if the customer provided their name voluntarily.) [Provide a score out of 5.]
 
-  Criteria category => Communication Skills
   crit_5 => Using a clear and professional tone of voice [Provide a score out of 3.]
   crit_6 => Listening actively without interrupting the customer. [Provide a score out of 3.]
   crit_7 => Showing empathy and understanding the issue [Provide a score out of 3.]
   crit_8 => Politeness and choosing appropriate words.  [Provide a score out of 3.]
   crit_9 => Focus and attention. [Provide a score out of 3.]
 
-  Criteria category => Request / Issue handling
   crit_10 => Accurately understanding the request. [Provide a score out of 3.]
   crit_11 => Asking specific and clear questions to understand the issue. [Provide a score out of 3.]
   crit_12 => Providing accurate and updated information. [Provide a score out of 3.]
   crit_13 => Clearly presenting solutions. [Provide a score out of 3.]
   crit_14 => Following approved procedures and policies. (The generic SOPs of handling customers in call centers.) [Provide a score out of 3.]
 
-  Criteria category => Closing the call
   crit_15 => Confirming all customer needs are met before ending the call (Any other service, sir?). [Provide a score out of 5.]
   crit_16 => Politely and professionally closing the call (standard closing). [Provide a score out of 5.]
 
-  Criteria Category => Call and hold management
   crit_17 => Only put the customer on hold when necessary. [Provide a score out of 3.]
   crit_18 => Informing the customer before placing them on hold (Can I place you on hold for a few seconds?). [Provide a score out of 3.]
   crit_19 => If info is unavailable, informing the customer about follow-up or raising a ticket. [Provide a score out of 3.]
   crit_20 => When returning to the call after hold (Sorry for the wait, and thank you for holding). [Provide a score out of 3.]
   crit_21 => Do not keep the customer on hold for more than 2 minutes. [Provide a score out of 3.]
 
-  Criteria Category => Compliance with policies and standards
   crit_22 => Adhering to security procedures and identity verification (Asking for customer's name, employee ID, etc for verification) [Provide a score out of 5.]
   crit_23 => Not exceeding authority or making unsecured promises. (Telling the customer that things are out of their control etc.) [Provide a score out of 5.]
 

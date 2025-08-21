@@ -65,17 +65,39 @@ def UseIOU(transcriptionSegments, segments):
         bestIOU = -1
         bestSegment = None
         for diarizationSegment in segments:
+            if "assigned" in diarizationSegment:
+                print(f"Skipping assigned segment: {diarizationSegment}")
+                continue
             iou = ComputeIOU(transcriptionSegment, diarizationSegment)
             if iou > bestIOU:
                 bestIOU = iou
                 bestSegment = diarizationSegment
         mapping[transcriptionSegment["id"]] = bestSegment
+        bestSegment["assigned"] = True
     return mapping
-def RunPipeline(audio_path: str, language: str = None):
+def RunPipeline(audioFile, language: str = None):
     os.makedirs("cleanedFiles", exist_ok=True)
     
-    cleanedAudioPath = f"cleanedFiles/{audio_path.split('/')[-1]}"
-    audio = AudioSegment.from_wav(audio_path)
+    # Handle UploadFile object from FastAPI
+    if hasattr(audioFile, 'filename') and hasattr(audioFile, 'file'):
+        # This is an UploadFile object
+        filename = audioFile.filename or "uploaded_audio.wav"
+        cleanedAudioPath = f"cleanedFiles/{filename.split('/')[-1]}"
+        
+        # Save the uploaded file to a temporary location
+        with open(cleanedAudioPath, "wb") as buffer:
+            content = audioFile.file.read()
+            buffer.write(content)
+        
+        # Reset file pointer for potential future reads
+        audioFile.file.seek(0)
+        
+        # Load and process the audio
+        audio = AudioSegment.from_wav(cleanedAudioPath)
+    else:
+        # This is a file path string (for backward compatibility)
+        cleanedAudioPath = f"cleanedFiles/{audioFile.split('/')[-1]}"
+        audio = AudioSegment.from_wav(audioFile)
     audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
     audio.export(cleanedAudioPath, format="wav")
     transcriptionResult = stt.transcribe(cleanedAudioPath, task="translate")
@@ -147,6 +169,9 @@ def RunPipeline(audio_path: str, language: str = None):
                 responseDict["sentimentAnalysis"]["representative"]["reasoning"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["representative"]["reasoning"])
                 responseDict["sentimentAnalysis"]["customer"]["sentiment"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["customer"]["sentiment"])
                 responseDict["sentimentAnalysis"]["customer"]["reasoning"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["customer"]["reasoning"])
+                for score_item in scoresDict:
+                    for criteriaKey, criteriaValue in score_item.items():
+                        criteriaValue["reasoning"] = llm.TranslateToArabic(criteriaValue["reasoning"])
             print(responseDict["summary"])
             print("===================================\nSentiment Analysis:\n===================================")
             print(f"Representative: {responseDict['sentimentAnalysis']['representative']}")
@@ -173,7 +198,12 @@ def RunPipeline(audio_path: str, language: str = None):
         print(f"Could not extract valid JSON from response. Printing raw response:")
         print("="*50)
         print(response)
-    return responseDict, totalScore
+    return {
+        "summary": responseDict["summary"],
+        "mainIssue": responseDict["mainIssue"],
+        "sentimentAnalysis": responseDict["sentimentAnalysis"],
+        "scoresBreakdown": scoresDict
+    }
 
 
 if __name__ == "__main__":
