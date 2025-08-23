@@ -65,15 +65,11 @@ def UseIOU(transcriptionSegments, segments):
         bestIOU = -1
         bestSegment = None
         for diarizationSegment in segments:
-            if "assigned" in diarizationSegment:
-                print(f"Skipping assigned segment: {diarizationSegment}")
-                continue
             iou = ComputeIOU(transcriptionSegment, diarizationSegment)
             if iou > bestIOU:
                 bestIOU = iou
                 bestSegment = diarizationSegment
         mapping[transcriptionSegment["id"]] = bestSegment
-        bestSegment["assigned"] = True
     return mapping
 def RunPipeline(audioFile, language: str = None):
     os.makedirs("cleanedFiles", exist_ok=True)
@@ -198,6 +194,11 @@ def RunPipeline(audioFile, language: str = None):
         print(f"Could not extract valid JSON from response. Printing raw response:")
         print("="*50)
         print(response)
+    try:
+        shutil.rmtree("cleanedFiles")
+        print("Temporary files cleaned up successfully")
+    except Exception as e:
+        print(f"Error cleaning up temporary files: {e}")
     return {
         "summary": responseDict["summary"],
         "mainIssue": responseDict["mainIssue"],
@@ -217,12 +218,7 @@ if __name__ == "__main__":
     audio_file = sys.argv[1]
     audio_file = audio_file
     response, totalScore = RunPipeline(audio_file, "arabic")
-    # Clean up temporary files
-    try:
-        shutil.rmtree("cleanedFiles")
-        print("Temporary files cleaned up successfully")
-    except Exception as e:
-        print(f"Error cleaning up temporary files: {e}")
+    
     
         
     
