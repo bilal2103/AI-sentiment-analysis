@@ -21,6 +21,7 @@ class GroqSTT:
                 else:
                     result = self.client.audio.transcriptions.create(
                         file=(audio_path, file.read()),
+                        prompt="Please transcribe this call recording between a customer care representative of SEDER group, and a troubled customer. The representative is either a sir or a madam. When someone says 'mom' as a respectful address, please transcribe it as 'ma'am'.",
                         model="whisper-large-v3-turbo",
                         response_format="verbose_json",
                         temperature=0.0,

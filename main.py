@@ -4,7 +4,8 @@ from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
-from pipeline import RunPipeline
+from pipeline import RunPipeline, GetSummary, GetScores
+from MongoService import MongoService
 
 load_dotenv()
 
@@ -13,11 +14,14 @@ app = FastAPI(
     description="A FastAPI server for AI-powered sentiment analysis with speech processing",
     version="1.0.0"
 )
+mongoService = MongoService.GetInstance()
 
 REQUIRED_ENV_VARS = [
     "HF_TOKEN",
     "GROQ_API_KEY", 
-    "GROQ_MODEL"
+    "GROQ_MODEL",
+    "MONGO_CONNECTION_STRING",
+    "DATABASE_NAME"
 ]
 
 
@@ -58,19 +62,60 @@ async def get_status() -> Dict[str, Any]:
     return status_info
 
 @app.post("/process")
-async def process_audio(audioFile: UploadFile = File(...), language: str = "english"):
-    if audioFile is None or audioFile.file is None or audioFile.content_type != "audio/wav":
+async def process_audio(audioFile: UploadFile = File(...)):
+    if audioFile is None or audioFile.file is None:
         raise HTTPException(status_code=400, detail="Invalid audio file")
     
-    if language not in ["english", "arabic"]:
-        raise HTTPException(status_code=400, detail="Language must be either english or arabic")
+    # Check if it's a valid audio file (more flexible content type checking)
+    valid_audio_types = ["audio/wav", "audio/wave", "audio/x-wav", "application/octet-stream"]
+    if audioFile.content_type not in valid_audio_types:
+        raise HTTPException(status_code=400, detail=f"Invalid audio file type: {audioFile.content_type}. Expected audio file.")
     
     try:
-        response = RunPipeline(audioFile, language)
-        return response
+        insertedId = RunPipeline(audioFile)
+        return {
+            "transcriptId": insertedId
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/transcript/{transcriptId}")
+async def get_transcript(transcriptId: str):
+    transcript = mongoService.GeTranscript(transcriptId)
+    return {
+        "transcript": transcript["transcript"],
+        "filename": transcript["filename"]
+    }
+
+@app.get("/summary/{transcriptId}")
+async def get_summary(transcriptId: str, language: str = "english"):
+    if language not in ["english", "arabic"]:
+        raise HTTPException(status_code=400, detail="Language must be either english or arabic")
+    transcript = mongoService.GeTranscript(transcriptId)
+    if transcript is None:
+        raise HTTPException(status_code=404, detail="Transcript not found")
+    transcript = transcript["transcript"]
+    summary = GetSummary(transcript, language)
+    return {
+        "summary": summary["summary"],
+        "mainIssue": summary["mainIssue"],
+        "sentimentAnalysis": summary["sentimentAnalysis"],
+    }
+
+@app.get("/score/{transcriptId}")
+async def get_score(transcriptId: str, subject: str, language: str = "english"):
+    if language not in ["english", "arabic"]:
+        raise HTTPException(status_code=400, detail="Language must be either english or arabic")
+    if subject not in ["representative", "customer"]:
+        raise HTTPException(status_code=400, detail="Subject must be either representative or customer")
+    transcript = mongoService.GeTranscript(transcriptId)
+    if transcript is None:
+        raise HTTPException(status_code=404, detail="Transcript not found")
+    transcript = transcript["transcript"]
+    scores = GetScores(transcript, language, subject)
+    return {
+        "scores": scores
+    }
 if __name__ == "__main__":
     import uvicorn
     

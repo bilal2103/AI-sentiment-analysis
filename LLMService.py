@@ -33,18 +33,20 @@ class LLMService:
         )
         return response.choices[0].message.content
     
-    def ScoreCall(self, script):
+    def ScoreCall(self, script, subject):
         try:
             with open("prompts.yaml", "r") as f:
                 prompts = yaml.safe_load(f)
         except Exception as e:
             print(f"Error loading prompts.yaml: {e}")
             raise e
-        
-        messages = [
-            {"role": "system", "content": f"{prompts['scoringPromptRoleAssigning']}\n-------------\n{prompts['scoringGuide']}\n-------------\n{prompts['scoringOutputFormat']}"},
-            {"role": "user", "content": f"Here's the call recording's transcription: {script}"}
-        ]
+        if subject == "representative":
+            messages = [
+                {"role": "system", "content": f"{prompts['scoringPromptRoleAssigning']}\n-------------\n{prompts['scoringGuide']}\n-------------\n{prompts['scoringOutputFormat']}"},
+                {"role": "user", "content": f"Here's the call recording's transcription: {script}"}
+            ]
+        else:
+            pass #TODO: Add customer scoring prompt
         response = self.groq_client.chat.completions.create(
             model=self.groq_model,
             messages=messages,

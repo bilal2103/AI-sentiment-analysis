@@ -5,12 +5,13 @@ from STTService import GroqSTT
 import json
 from LLMService import LLMService
 from pydub import AudioSegment
+from MongoService import MongoService
 import re
 
 diarization = Diarization()
 stt = GroqSTT()
 llm = LLMService()
-
+mongo = MongoService.GetInstance()
 def extract_json_from_response(response):
     try:
         return json.loads(response.strip())
@@ -71,7 +72,7 @@ def UseIOU(transcriptionSegments, segments):
                 bestSegment = diarizationSegment
         mapping[transcriptionSegment["id"]] = bestSegment
     return mapping
-def RunPipeline(audioFile, language: str = None):
+def RunPipeline(audioFile):
     os.makedirs("cleanedFiles", exist_ok=True)
     
     # Handle UploadFile object from FastAPI
@@ -97,7 +98,8 @@ def RunPipeline(audioFile, language: str = None):
     audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
     audio.export(cleanedAudioPath, format="wav")
     transcriptionResult = stt.transcribe(cleanedAudioPath, task="translate")
-    transcriptionSegments = list(transcriptionResult.segments)
+    transcriptionSegments = list(transcriptionResult.segments) 
+    #print(transcriptionResult.text)
     diarization_result = diarization.diarize(cleanedAudioPath)
     diarizationSegments = [Segment(segment) for segment in list(diarization_result.itertracks(yield_label=True))]
     speakerCounts = {}
@@ -152,50 +154,18 @@ def RunPipeline(audioFile, language: str = None):
     
     with open("script.json", "w", encoding="utf-8") as f:
         json.dump(script, f, indent=4)
-    response = llm.SummarizeAndAnalyze(script)
-    scores = llm.ScoreCall(script)
-    responseDict = extract_json_from_response(response)
-    scoresDict = extract_json_from_response(scores)
-    if responseDict:
-        try:
-            if language and language == "arabic":
-                responseDict["summary"] = llm.TranslateToArabic(responseDict["summary"])
-                responseDict["mainIssue"] = llm.TranslateToArabic(responseDict["mainIssue"])
-                responseDict["sentimentAnalysis"]["representative"]["sentiment"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["representative"]["sentiment"])
-                responseDict["sentimentAnalysis"]["representative"]["reasoning"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["representative"]["reasoning"])
-                responseDict["sentimentAnalysis"]["customer"]["sentiment"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["customer"]["sentiment"])
-                responseDict["sentimentAnalysis"]["customer"]["reasoning"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["customer"]["reasoning"])
-                for score_item in scoresDict:
-                    for criteriaKey, criteriaValue in score_item.items():
-                        criteriaValue["reasoning"] = llm.TranslateToArabic(criteriaValue["reasoning"])
-            print(responseDict["summary"])
-            print("===================================\nSentiment Analysis:\n===================================")
-            print(f"Representative: {responseDict['sentimentAnalysis']['representative']}")
-            print(f"Customer: {responseDict['sentimentAnalysis']['customer']}")
-            print("===================================\n===================================")
-            print(f"Main Issue: {responseDict['mainIssue']}")
-            print("===================================\n===================================")
-
-            totalScore = 0
-            for score_item in scoresDict:
-                for criteriaKey, criteriaValue in score_item.items():
-                    print(f"Criteria: {criteriaKey}")
-                    print(f"Score: {criteriaValue['score']}")
-                    print(f"Reasoning: {criteriaValue['reasoning']}")
-                    totalScore += criteriaValue["score"]
-            print(f"Total score: {totalScore}")
-
-        except KeyError as e:
-            print(f"JSON structure is missing expected key: {e}")
-            print("Available keys:", list(responseDict.keys()))
-            print("Raw JSON content:")
-            print(json.dumps(responseDict, indent=2))
+    insertedId = mongo.InsertTranscript(script, filename)
+    return str(insertedId)
+    print("========================Script========================\n")
+    for item in script:
+        print(f"Speaker: {item['speaker']}\nText: {item['text']}\nStart: {item['start']}\nEnd: {item['end']}\n")
+    
     else:
         print(f"Could not extract valid JSON from response. Printing raw response:")
         print("="*50)
         print(response)
     try:
-        shutil.rmtree("cleanedFiles")
+        #shutil.rmtree("cleanedFiles")
         print("Temporary files cleaned up successfully")
     except Exception as e:
         print(f"Error cleaning up temporary files: {e}")
@@ -206,7 +176,52 @@ def RunPipeline(audioFile, language: str = None):
         "scoresBreakdown": scoresDict
     }
 
+def GetScores(transcript, language, subject):
+    scores = llm.ScoreCall(transcript, subject)
+    scoresDict = extract_json_from_response(scores)
+    if language and language == "arabic":
+        for score_item in scoresDict:
+            for criteriaKey, criteriaValue in score_item.items():
+                criteriaValue["reasoning"] = llm.TranslateToArabic(criteriaValue["reasoning"])
+    totalScore = 0
+    for score_item in scoresDict:
+        for criteriaKey, criteriaValue in score_item.items():
+            print(f"Criteria: {criteriaKey}")
+            print(f"Score: {criteriaValue['score']}")
+            print(f"Reasoning: {criteriaValue['reasoning']}")
+            totalScore += criteriaValue["score"]
+    print(f"Total score: {totalScore}")
+    return scoresDict
 
+def GetSummary(transcript, language):
+    response = llm.SummarizeAndAnalyze(transcript)
+    
+    responseDict = extract_json_from_response(response)
+    
+    if responseDict:
+        try:
+            if language and language == "arabic":
+                responseDict["summary"] = llm.TranslateToArabic(responseDict["summary"])
+                responseDict["mainIssue"] = llm.TranslateToArabic(responseDict["mainIssue"])
+                responseDict["sentimentAnalysis"]["representative"]["sentiment"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["representative"]["sentiment"])
+                responseDict["sentimentAnalysis"]["representative"]["reasoning"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["representative"]["reasoning"])
+                responseDict["sentimentAnalysis"]["customer"]["sentiment"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["customer"]["sentiment"])
+                responseDict["sentimentAnalysis"]["customer"]["reasoning"] = llm.TranslateToArabic(responseDict["sentimentAnalysis"]["customer"]["reasoning"])
+                
+            print(responseDict["summary"])
+            print("===================================\nSentiment Analysis:\n===================================")
+            print(f"Representative: {responseDict['sentimentAnalysis']['representative']}")
+            print(f"Customer: {responseDict['sentimentAnalysis']['customer']}")
+            print("===================================\n===================================")
+            print(f"Main Issue: {responseDict['mainIssue']}")
+            print("===================================\n===================================")
+
+        except KeyError as e:
+            print(f"JSON structure is missing expected key: {e}")
+            print("Available keys:", list(responseDict.keys()))
+            print("Raw JSON content:")
+            print(json.dumps(responseDict, indent=2))
+    return responseDict
 if __name__ == "__main__":
     import sys
     
@@ -217,7 +232,7 @@ if __name__ == "__main__":
         
     audio_file = sys.argv[1]
     audio_file = audio_file
-    response, totalScore = RunPipeline(audio_file, "arabic")
+    response, totalScore = RunPipeline(audio_file)
     
     
         
