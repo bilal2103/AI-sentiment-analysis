@@ -155,6 +155,13 @@ def RunPipeline(audioFile):
     with open("script.json", "w", encoding="utf-8") as f:
         json.dump(script, f, indent=4)
     insertedId = mongo.InsertTranscript(script, filename)
+
+    try:
+        shutil.rmtree("cleanedFiles")
+        print("Temporary files cleaned up successfully")
+    except Exception as e:
+        print(f"Error cleaning up temporary files: {e}")
+    
     return str(insertedId)
     print("========================Script========================\n")
     for item in script:
@@ -177,12 +184,15 @@ def RunPipeline(audioFile):
     }
 
 def GetScores(transcript, language, subject):
-    scores = llm.ScoreCall(transcript, subject)
-    scoresDict = extract_json_from_response(scores)
+    response = llm.ScoreCall(transcript, subject)
+    responseDict = extract_json_from_response(response)
+    scoresDict = responseDict["scores"]
     if language and language == "arabic":
         for score_item in scoresDict:
             for criteriaKey, criteriaValue in score_item.items():
                 criteriaValue["reasoning"] = llm.TranslateToArabic(criteriaValue["reasoning"])
+        if "behaviorSummary" in responseDict:
+            responseDict["behaviorSummary"] = llm.TranslateToArabic(responseDict["behaviorSummary"])
     totalScore = 0
     for score_item in scoresDict:
         for criteriaKey, criteriaValue in score_item.items():
@@ -191,7 +201,13 @@ def GetScores(transcript, language, subject):
             print(f"Reasoning: {criteriaValue['reasoning']}")
             totalScore += criteriaValue["score"]
     print(f"Total score: {totalScore}")
-    return scoresDict
+    result = {
+        "scoresDict": scoresDict,
+        "totalScore": totalScore,
+    }
+    if subject == "customer":
+        result["behaviorSummary"] = responseDict["behaviorSummary"]
+    return result
 
 def GetSummary(transcript, language):
     response = llm.SummarizeAndAnalyze(transcript)

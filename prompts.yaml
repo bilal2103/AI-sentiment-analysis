@@ -32,7 +32,7 @@ scoringPromptRoleAssigning: |
   You are an expert at grading a call recording against a set of criteria. You will be provided with a script of a call recording and a set of criteria. 
   You will need to grade the call recording against the criteria. 
 
-scoringGuide: |
+scoringGuideRepresentative: |
   You need to grade the customer care representative's responses to the customer's issues, based on the provided criteria. A higher score is better. Give full score for when the criteria is not applicable.
   Here's the criteria, along with the score out of which you need to grade the call recording - the format followed below is: <criteria_id> => <criteria> (<A guideline for the criteria>) [<score out of which you need to grade the call recording>]:
   crit_1 => Greeting in a professional and appropriate manner. [Provide a score out of 3.]
@@ -64,11 +64,9 @@ scoringGuide: |
   crit_22 => Adhering to security procedures and identity verification (Asking for customer's name, employee ID, etc for verification) [Provide a score out of 5.]
   crit_23 => Not exceeding authority or making unsecured promises. (Telling the customer that things are out of their control etc.) [Provide a score out of 5.]
 
-scoringOutputFormat: |
-  Please format your output in a JSON, containing the fields, "score", "reasoning". Each score, reasoning pair should be a identifiable via criteria keys in the scoring guide above.
-  Please only include the JSON in your response and nothing else.
-  Sample output:
-  [
+sampleOutputRepresentative: |
+  Here's a sample output:
+  "scores": [
     {
       "crit_1": {
         "score": 0,
@@ -84,4 +82,39 @@ scoringOutputFormat: |
     ...
   ]
 
+scoringOutputFormat: |
+  Please format your output in a JSON, containing the fields, "score", "reasoning". Each score, reasoning pair should be a identifiable via criteria keys in the scoring guide above.
+  Please only include the JSON in your response and nothing else.
 
+scoringGuideCustomer: |
+  You need to grade the behavior of customer during the call, based on the provided criteria. Give a numerical rating to each criteria in the range of -1 to 1, where -1 is extremely negative and 1 is extremely positive. Incase a criteria is inapplicable / neutral, rate it as 0.
+  Here's the criteria:
+  crit_1 => Politeness and respectfulness of the customer's tone.
+  crit_2 => How clearly the customer explained their issue or request.
+  crit_3 => Willingness to cooperate with the agent during the call.
+  crit_4 => Ability to remain calm under frustration.
+  crit_5 => Customer’s responsiveness and quality of feedback.
+  crit_6 => Overall emotional tone of the conversation.
+  crit_7 => How attentive and engaged the customer was.
+
+sampleOutputCustomer: |
+  Here's a sample output:
+  {
+    "scores": 
+    [
+      {
+        "crit_1": {
+          "score": 0.97,
+          "reasoning": "The customer was respectful and polite."
+        }
+      },
+      {
+        "crit_2": {
+          "score": -0.3,
+          "reasoning": "The customer was slightly unclear in their explanation."
+        }
+      },
+      ...
+    ],
+    "behaviorSummary": "The customer was respectful and clearly explained their issue or request. They were frustrated and not cooperative. The overall emotional tone of the conversation was negative."
+  }
