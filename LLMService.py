@@ -1,7 +1,7 @@
 from groq import Groq
 from dotenv import load_dotenv
 import os
-import json
+import yaml
 
 
 load_dotenv()
@@ -16,19 +16,59 @@ class LLMService:
 
     def SummarizeAndAnalyze(self, script):
         try:
-            with open("Prompts.json", "r") as f:
-                prompts = json.load(f)
+            with open("prompts.yaml", "r") as f:
+                prompts = yaml.safe_load(f)
         except Exception as e:
-            print(f"Error loading Prompts.json: {e}")
+            print(f"Error loading prompts.yaml: {e}")
             raise e
         
         messages = [
-            {"role": "system", "content": f"{prompts['roleAssigning']}\n{prompts['transcriptGuide']}\n{prompts['outputFormat']}"},
+            {"role": "system", "content": f"{prompts['roleAssigning']}\n-------------\n{prompts['transcriptGuide']}\n-------------\n{prompts['outputFormat']}"},
             {"role": "user", "content": f"Here's the call recording's transcription: {script}"}
         ]
         response = self.groq_client.chat.completions.create(
             model=self.groq_model,
-            messages=messages
+            messages=messages,
+            temperature=0.0
+        )
+        return response.choices[0].message.content
+    
+    def ScoreCall(self, script, subject):
+        try:
+            with open("prompts.yaml", "r") as f:
+                prompts = yaml.safe_load(f)
+        except Exception as e:
+            print(f"Error loading prompts.yaml: {e}")
+            raise e
+        if subject == "representative":
+            messages = [
+                {"role": "system", "content": f"{prompts['scoringPromptRoleAssigning']}\n-------------\n{prompts['scoringGuide']}\n-------------\n{prompts['scoringOutputFormat']}"},
+                {"role": "user", "content": f"Here's the call recording's transcription: {script}"}
+            ]
+        else:
+            pass #TODO: Add customer scoring prompt
+        response = self.groq_client.chat.completions.create(
+            model=self.groq_model,
+            messages=messages,
+            temperature=0.0
+        )
+        return response.choices[0].message.content
+    
+    def TranslateToArabic(self, text):
+        messages = [
+            {
+                "role": "system",
+                "content": "You are expert in translating text in English to Arabic. In your output, please only provide the translated text and nothing else."
+            },
+            {
+                "role": "user",
+                "content": f"Translate the following text to Arabic: {text}"
+            }
+        ]
+        response = self.groq_client.chat.completions.create(
+            model=self.groq_model,
+            messages=messages,
+            temperature=0.0
         )
         return response.choices[0].message.content
 
