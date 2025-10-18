@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from pipeline import RunPipeline, GetSummary, GetScores
 from MongoService import MongoService
-
+import traceback
 load_dotenv()
 
 app = FastAPI(
@@ -77,6 +77,7 @@ async def process_audio(audioFile: UploadFile = File(...)):
             "transcriptId": insertedId
         }
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/transcript/{transcriptId}")

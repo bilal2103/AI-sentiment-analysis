@@ -7,11 +7,41 @@ from LLMService import LLMService
 from pydub import AudioSegment
 from MongoService import MongoService
 import re
+from pydub.silence import split_on_silence
 
 diarization = Diarization()
 stt = GroqSTT()
 llm = LLMService()
 mongo = MongoService.GetInstance()
+
+def PreProcessAudio(input_file, output_file, silence_thresh=-40, min_silence_len=1000, keep_silence=200):
+    try:
+        audio = AudioSegment.from_wav(input_file)
+        audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+        audio.export(output_file, format="wav")
+        chunks = split_on_silence(
+            audio,
+            min_silence_len=min_silence_len,
+            silence_thresh=silence_thresh,
+            keep_silence=keep_silence
+        )
+        if chunks:
+            combined = AudioSegment.empty()
+            for i, chunk in enumerate(chunks):
+                combined += chunk
+                if i < len(chunks) - 1:
+                    combined += AudioSegment.silent(duration=100)
+            combined.export(output_file, format="wav")
+            print(f"Silence removed. Output saved to: {output_file}")
+        else:
+            print("No audio chunks found after silence removal")
+            
+    except Exception as e:
+        print(f"Error removing silence: {e}")
+        return False
+
+
+    
 def extract_json_from_response(response):
     try:
         return json.loads(response.strip())
@@ -75,31 +105,20 @@ def UseIOU(transcriptionSegments, segments):
 def RunPipeline(audioFile):
     os.makedirs("cleanedFiles", exist_ok=True)
     
-    # Handle UploadFile object from FastAPI
     if hasattr(audioFile, 'filename') and hasattr(audioFile, 'file'):
-        # This is an UploadFile object
-        filename = audioFile.filename or "uploaded_audio.wav"
+        filename = audioFile.filename
         cleanedAudioPath = f"cleanedFiles/{filename.split('/')[-1]}"
         
-        # Save the uploaded file to a temporary location
         with open(cleanedAudioPath, "wb") as buffer:
             content = audioFile.file.read()
             buffer.write(content)
         
-        # Reset file pointer for potential future reads
         audioFile.file.seek(0)
-        
-        # Load and process the audio
-        audio = AudioSegment.from_wav(cleanedAudioPath)
     else:
-        # This is a file path string (for backward compatibility)
-        cleanedAudioPath = f"cleanedFiles/{audioFile.split('/')[-1]}"
-        audio = AudioSegment.from_wav(audioFile)
-    audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-    audio.export(cleanedAudioPath, format="wav")
-    transcriptionResult = stt.transcribe(cleanedAudioPath, task="translate")
-    transcriptionSegments = list(transcriptionResult.segments) 
-    #print(transcriptionResult.text)
+        raise ValueError("Invalid audio file")
+
+    PreProcessAudio(cleanedAudioPath, cleanedAudioPath)
+    transcriptionSegments = stt.transcribe(cleanedAudioPath, 60000)
     diarization_result = diarization.diarize(cleanedAudioPath)
     diarizationSegments = [Segment(segment) for segment in list(diarization_result.itertracks(yield_label=True))]
     speakerCounts = {}
@@ -156,25 +175,6 @@ def RunPipeline(audioFile):
         json.dump(script, f, indent=4)
     insertedId = mongo.InsertTranscript(script, filename)
     return str(insertedId)
-    print("========================Script========================\n")
-    for item in script:
-        print(f"Speaker: {item['speaker']}\nText: {item['text']}\nStart: {item['start']}\nEnd: {item['end']}\n")
-    
-    else:
-        print(f"Could not extract valid JSON from response. Printing raw response:")
-        print("="*50)
-        print(response)
-    try:
-        #shutil.rmtree("cleanedFiles")
-        print("Temporary files cleaned up successfully")
-    except Exception as e:
-        print(f"Error cleaning up temporary files: {e}")
-    return {
-        "summary": responseDict["summary"],
-        "mainIssue": responseDict["mainIssue"],
-        "sentimentAnalysis": responseDict["sentimentAnalysis"],
-        "scoresBreakdown": scoresDict
-    }
 
 def GetScores(transcript, language, subject):
     scores = llm.ScoreCall(transcript, subject)
