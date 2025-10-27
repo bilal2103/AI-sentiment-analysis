@@ -42,11 +42,14 @@ class LLMService:
             raise e
         if subject == "representative":
             messages = [
-                {"role": "system", "content": f"{prompts['scoringPromptRoleAssigning']}\n-------------\n{prompts['scoringGuide']}\n-------------\n{prompts['scoringOutputFormat']}"},
+                {"role": "system", "content": f"{prompts['scoringPromptRoleAssigning']}\n-------------\n{prompts['scoringGuideRepresentative']}\n-------------\n{prompts['scoringOutputFormat']}\n{prompts['sampleOutputRepresentative']}"},
                 {"role": "user", "content": f"Here's the call recording's transcription: {script}"}
             ]
         else:
-            pass #TODO: Add customer scoring prompt
+            messages = [
+                {"role": "system", "content": f"{prompts['scoringPromptRoleAssigning']}\n-------------\n{prompts['scoringGuideCustomer']}\n-------------\n{prompts['scoringOutputFormat']}\n{prompts['sampleOutputCustomer']}"},
+                {"role": "user", "content": f"Here's the call recording's transcription: {script}"}
+            ]
         response = self.groq_client.chat.completions.create(
             model=self.groq_model,
             messages=messages,
@@ -71,5 +74,3 @@ class LLMService:
             temperature=0.0
         )
         return response.choices[0].message.content
-
-
