@@ -1,6 +1,5 @@
 import os
 import shutil
-from DiarizationService import Diarization
 from STTService import GroqSTT
 import json
 from LLMService import LLMService
@@ -9,7 +8,6 @@ from MongoService import MongoService
 import re
 from pydub.silence import split_on_silence
 
-diarization = None
 stt = None
 llm = LLMService()
 mongo = MongoService.GetInstance()
@@ -103,8 +101,7 @@ def UseIOU(transcriptionSegments, segments):
         mapping[transcriptionSegment["id"]] = bestSegment
     return mapping
 def RunPipeline(audioFile):
-    global diarization, stt
-    diarization = Diarization()
+    global stt
     stt = GroqSTT()
     os.makedirs("cleanedFiles", exist_ok=True)
     
@@ -121,8 +118,8 @@ def RunPipeline(audioFile):
         raise ValueError("Invalid audio file")
 
     PreProcessAudio(cleanedAudioPath, cleanedAudioPath)
-    transcriptionSegments = stt.transcribe(cleanedAudioPath, 60000)
-    diarization_result = diarization.diarize(cleanedAudioPath)
+    # transcribe() now returns both transcription segments and diarization result
+    transcriptionSegments, diarization_result = stt.transcribe(cleanedAudioPath, 40000)
     diarizationSegments = [Segment(segment) for segment in list(diarization_result.itertracks(yield_label=True))]
     speakerCounts = {}
     for segment in diarizationSegments:
