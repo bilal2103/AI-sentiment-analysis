@@ -1,6 +1,5 @@
 import os
 import shutil
-from DiarizationService import Diarization
 from STTService import GroqSTT
 import json
 from LLMService import LLMService
@@ -9,7 +8,6 @@ from MongoService import MongoService
 import re
 from pydub.silence import split_on_silence
 
-diarization = None
 stt = None
 llm = LLMService()
 mongo = MongoService.GetInstance()
@@ -30,7 +28,7 @@ def PreProcessAudio(input_file, output_file, silence_thresh=-40, min_silence_len
             for i, chunk in enumerate(chunks):
                 combined += chunk
                 if i < len(chunks) - 1:
-                    combined += AudioSegment.silent(duration=100)
+                    combined += AudioSegment.silent(duration=500)
             combined.export(output_file, format="wav")
             print(f"Silence removed. Output saved to: {output_file}")
         else:
@@ -103,8 +101,7 @@ def UseIOU(transcriptionSegments, segments):
         mapping[transcriptionSegment["id"]] = bestSegment
     return mapping
 def RunPipeline(audioFile):
-    global diarization, stt
-    diarization = Diarization()
+    global stt
     stt = GroqSTT()
     os.makedirs("cleanedFiles", exist_ok=True)
     
@@ -121,8 +118,10 @@ def RunPipeline(audioFile):
         raise ValueError("Invalid audio file")
 
     PreProcessAudio(cleanedAudioPath, cleanedAudioPath)
-    transcriptionSegments = stt.transcribe(cleanedAudioPath, 60000)
-    diarization_result = diarization.diarize(cleanedAudioPath)
+    # transcribe() now returns both transcription segments and diarization result
+    segmentDuration = 80000
+    insertedId = None
+    transcriptionSegments, diarization_result = stt.transcribe(cleanedAudioPath, segmentDuration)
     diarizationSegments = [Segment(segment) for segment in list(diarization_result.itertracks(yield_label=True))]
     speakerCounts = {}
     for segment in diarizationSegments:
@@ -173,9 +172,7 @@ def RunPipeline(audioFile):
             "start": startTime,
             "end": endTime
         })
-    
-    with open("script.json", "w", encoding="utf-8") as f:
-        json.dump(script, f, indent=4)
+
     insertedId = mongo.InsertTranscript(script, filename)
     return str(insertedId)
 
