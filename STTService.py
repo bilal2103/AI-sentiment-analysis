@@ -192,8 +192,8 @@ class GroqSTT:
                     no_speech_prob_str = f"{no_speech_prob:.4f}" if isinstance(no_speech_prob, (int, float)) else str(no_speech_prob)
                     compression_ratio_str = f"{compression_ratio:.2f}" if isinstance(compression_ratio, (int, float)) else str(compression_ratio)
                     
-                    # Check if segment is noisy (avg_logprob < -0.9)
-                    is_noisy = isinstance(avg_logprob, (int, float)) and avg_logprob < -0.9
+                    # Check if segment is noisy (avg_logprob < -1.0)
+                    is_noisy = isinstance(avg_logprob, (int, float)) and avg_logprob < -1.0
                     
                     if is_noisy:
                         discarded_count += 1
@@ -205,9 +205,33 @@ class GroqSTT:
                         print(f"        avg_logprob: {avg_logprob_str} | no_speech_prob: {no_speech_prob_str} | compression_ratio: {compression_ratio_str} | temp: {temperature}")
                 
                 if discarded_count > 0:
-                    print(f"    ⚠️ Discarded {discarded_count} noisy segment(s) with avg_logprob < -0.9")
+                    print(f"    ⚠️ Discarded {discarded_count} noisy segment(s) with avg_logprob < -1.0")
                 
-                return filteredSegments
+                # Remove consecutive duplicate text segments
+                deduplicatedSegments = []
+                duplicate_count = 0
+                for seg in filteredSegments:
+                    # Extract text based on whether seg is dict or object
+                    text = seg.get('text', '').strip() if isinstance(seg, dict) else getattr(seg, 'text', '').strip()
+                    
+                    # Check if this text is the same as the previous segment's text
+                    if deduplicatedSegments:
+                        prev_seg = deduplicatedSegments[-1]
+                        prev_text = prev_seg.get('text', '').strip() if isinstance(prev_seg, dict) else getattr(prev_seg, 'text', '').strip()
+                        
+                        if text == prev_text:
+                            duplicate_count += 1
+                            start = seg.get('start', 0) if isinstance(seg, dict) else getattr(seg, 'start', 0)
+                            end = seg.get('end', 0) if isinstance(seg, dict) else getattr(seg, 'end', 0)
+                            print(f"    🔁 DUPLICATE removed [{start:.1f}s - {end:.1f}s] \"{text}\"")
+                            continue
+                    
+                    deduplicatedSegments.append(seg)
+                
+                if duplicate_count > 0:
+                    print(f"    🔁 Removed {duplicate_count} duplicate segment(s)")
+                
+                return deduplicatedSegments
         except Exception as e:
             print(f"Error transcribing segment: {e}")
             raise e
