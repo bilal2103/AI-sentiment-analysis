@@ -1,5 +1,5 @@
 numpy==1.26.4
-torch==2.7.1+cu118
+torch==2.2.0
 pyannote.audio==3.3.2
 soundfile==0.13.1
 groq==0.31.0
