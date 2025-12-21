@@ -12,17 +12,12 @@ class GroqSTT:
         self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
         self.diarization = Diarization()
     
-    def find_closest_diarization_boundary(self, diarization_result, target_time_seconds):
-        """
-        Find the end time of the diarization segment that contains or is closest to the target time.
-        This ensures we don't cut off mid-sentence by extending to the speaker's utterance end.
-        """
-        # First, check if target falls within an active diarization segment
-        for turn, _, speaker in diarization_result.itertracks(yield_label=True):
-            if turn.start <= target_time_seconds <= turn.end:
-                print(f"  → Target {target_time_seconds:.1f}s is within segment [{turn.start:.1f}s - {turn.end:.1f}s] ({speaker})")
-                print(f"  → Extending to segment end: {turn.end:.1f}s")
-                return turn.end * 1000  # Return end time in milliseconds
+    def find_closest_diarization_boundary(self, diarizationSegments, target_time_seconds):
+        for segment in diarizationSegments:
+            if segment['start'] <= target_time_seconds <= segment['end']:
+                print(f"  → Target {target_time_seconds:.1f}s is within segment [{segment['start']:.1f}s - {segment['end']:.1f}s] ({segment['speaker']})")
+                print(f"  → Extending to segment end: {segment['end']:.1f}s")
+                return segment['end'] * 1000  # Return end time in milliseconds
         
         # Target is in a gap - find the segment that ends closest BEFORE the target
         # or the segment that starts closest AFTER the target
@@ -34,22 +29,22 @@ class GroqSTT:
         next_speaker = None
         min_diff_after = float('inf')
         
-        for turn, _, speaker in diarization_result.itertracks(yield_label=True):
+        for segment in diarizationSegments:
             # Check segments that end before target
-            if turn.end <= target_time_seconds:
-                diff = target_time_seconds - turn.end
+            if segment['end'] <= target_time_seconds:
+                diff = target_time_seconds - segment['end']
                 if diff < min_diff_before:
                     min_diff_before = diff
-                    closest_segment_end = turn.end
-                    closest_speaker = speaker
+                    closest_segment_end = segment['end']
+                    closest_speaker = segment['speaker']
             
             # Check segments that start after target
-            if turn.start > target_time_seconds:
-                diff = turn.start - target_time_seconds
+            if segment['start'] > target_time_seconds:
+                diff = segment['start'] - target_time_seconds
                 if diff < min_diff_after:
                     min_diff_after = diff
-                    next_segment_start = turn.start
-                    next_speaker = speaker
+                    next_segment_start = segment['start']
+                    next_speaker = segment['speaker']
         
         # If there's a segment starting soon after target (within 2 seconds), use that start as boundary
         # Otherwise, use the end of the previous segment
@@ -63,7 +58,7 @@ class GroqSTT:
         print(f"  → No diarization segments found, using target time: {target_time_seconds:.1f}s")
         return target_time_seconds * 1000  # Fallback to target time if no segments found
     
-    def SplitAndTranscribe(self, audio_file, segment_duration):
+    def SplitAndTranscribe(self, diarizationSegments, audio_file, segment_duration):
         try:
             segmentThreshold = 30000    #segment_duration will >= segmentThreshold
             audio = AudioSegment.from_wav(audio_file)
@@ -74,10 +69,6 @@ class GroqSTT:
             if os.path.exists(segments_dir):
                 shutil.rmtree(segments_dir)
             os.makedirs(segments_dir, exist_ok=True)
-            
-            # First, diarize the entire audio to get speaker boundaries
-            print("Diarizing audio to find optimal segment boundaries...")
-            full_diarization = self.diarization.diarize(audio_file)
             
             segments = []
             segment_count = 0
@@ -106,7 +97,7 @@ class GroqSTT:
                     # Find the closest diarization boundary to the expected end time
                     print(f"  → Searching for diarization boundary near {expected_end_time/1000:.1f}s...")
                     end_time = self.find_closest_diarization_boundary(
-                        full_diarization, 
+                        diarizationSegments, 
                         expected_end_time / 1000  # Convert to seconds for diarization
                     )
                     is_last_segment = False
@@ -146,7 +137,7 @@ class GroqSTT:
                     break
                     
             print(f"\n✓ Transcription complete: {len(segments)} total utterances from {segment_count} audio segments")
-            return segments, full_diarization
+            return segments
             
         except Exception as e:
             print(f"Error splitting audio: {e}")
@@ -236,13 +227,30 @@ class GroqSTT:
             print(f"Error transcribing segment: {e}")
             raise e
     
-    def transcribe(self, audio_path: str, splitDuration):
-        """
-        Returns: (transcription_segments, diarization_result)
-        """
+    def transcribe(self, diarizationSegments, audio_path: str, splitDuration):
         try:
-            segments, diarization_result = self.SplitAndTranscribe(audio_path, splitDuration)
-            return segments, diarization_result
+            segments = self.SplitAndTranscribe(diarizationSegments, audio_path, splitDuration)
+            
+            # Clean up segments directory after successful transcription
+            # (Note: Pipeline will also clean this up, but we do it here as well for safety)
+            segments_dir = "segments"
+            if os.path.exists(segments_dir):
+                try:
+                    shutil.rmtree(segments_dir)
+                    print(f"✓ Cleaned up temporary segments directory: {segments_dir}/")
+                except Exception as cleanup_error:
+                    print(f"⚠️ Warning: Could not clean up {segments_dir}: {cleanup_error}")
+            
+            return segments
         except Exception as e:
+            # Clean up segments directory even on error
+            segments_dir = "segments"
+            if os.path.exists(segments_dir):
+                try:
+                    shutil.rmtree(segments_dir)
+                    print(f"✓ Cleaned up temporary segments directory after error: {segments_dir}/")
+                except Exception as cleanup_error:
+                    print(f"⚠️ Warning: Could not clean up {segments_dir}: {cleanup_error}")
+            
             print(f"Error transcribing with Groq: {e}")
             raise e

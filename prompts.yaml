@@ -5,7 +5,7 @@ transcriptGuide: |
   You will be provided with a transcription of a call recording between a customer care representative of SEDER group and a troubled customer.
   The transcription is generated via speech-to-text model, so it may contain erroneous or unexpected words/sentences, hallucinations etc.
   You have to identify such sentences yourself and ignore them.
-  The speaker labels are generic and may not be 100% accurate, so you will have to go through the entire script first to identify which dialogue is from customer care representative and which dialogue is of user.
+  DO NOT rely on speaker labels as they may not be 100% accurate, go through the entire script first to identify which dialogue is from the representative and which dialogue is of the user.
   DO NOT include the names of the representative or customer in the summary
 outputFormat: |
   Please format your output in a JSON, containing the fields, "summary", "sentimentAnalysis" and "mainIssue".

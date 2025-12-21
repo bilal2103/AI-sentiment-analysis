@@ -1,5 +1,6 @@
 numpy==1.26.4
 torch==2.2.0
+huggingface_hub<0.20
 pyannote.audio==3.3.2
 soundfile==0.13.1
 groq==0.31.0
@@ -10,3 +11,4 @@ uvicorn==0.22.0
 pymongo
 python-multipart
 dotenv
+scikit-learn

@@ -7,11 +7,11 @@ from pydub import AudioSegment
 from MongoService import MongoService
 import re
 from pydub.silence import split_on_silence
-
+from DiarizationService import Diarization
 stt = None
 llm = LLMService()
 mongo = MongoService.GetInstance()
-
+diarization = Diarization()
 def PreProcessAudio(input_file, output_file, silence_thresh=-40, min_silence_len=1000, keep_silence=200):
     try:
         audio = AudioSegment.from_wav(input_file)
@@ -66,18 +66,12 @@ def extract_json_from_response(response):
     
     return None
 
-def Segment(segment):
-    turn, _, speaker = segment
-    return {
-        "start": turn.start,
-        "stop": turn.end,
-        "speaker": speaker
-    }
+
 
 def UseIOU(transcriptionSegments, segments):
     def ComputeIOU(whisper_segment, pyannote_segment):
         whisper_start, whisper_end = whisper_segment["start"], whisper_segment["end"]
-        pyannote_start, pyannote_end = pyannote_segment["start"], pyannote_segment["stop"]
+        pyannote_start, pyannote_end = pyannote_segment["start"], pyannote_segment["end"]
 
         intersection_start = max(whisper_start, pyannote_start)
         intersection_end = min(whisper_end, pyannote_end)
@@ -100,81 +94,105 @@ def UseIOU(transcriptionSegments, segments):
                 bestSegment = diarizationSegment
         mapping[transcriptionSegment["id"]] = bestSegment
     return mapping
-def RunPipeline(audioFile):
+def CleanupTempFiles(cleanedAudioPath=None):
+    """
+    Safely clean up temporary files and directories.
+    
+    Args:
+        cleanedAudioPath: Path to the specific cleaned audio file to remove (optional)
+    """
+    try:
+        # Clean up the specific cleaned audio file if provided
+        if cleanedAudioPath and os.path.exists(cleanedAudioPath):
+            os.remove(cleanedAudioPath)
+            print(f"✓ Cleaned up: {cleanedAudioPath}")
+        
+        # Clean up segments directory if it exists
+        if os.path.exists("segments"):
+            shutil.rmtree("segments")
+            print("✓ Cleaned up: segments/")
+        
+        # Clean up cleanedFiles directory if empty or remove all files
+        if os.path.exists("cleanedFiles"):
+            files = os.listdir("cleanedFiles")
+            if len(files) == 0:
+                shutil.rmtree("cleanedFiles")
+                print("✓ Cleaned up: cleanedFiles/ (directory was empty)")
+            else:
+                # Remove all files in cleanedFiles
+                for file in files:
+                    file_path = os.path.join("cleanedFiles", file)
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                        print(f"✓ Cleaned up: {file_path}")
+                # Remove directory if now empty
+                if len(os.listdir("cleanedFiles")) == 0:
+                    shutil.rmtree("cleanedFiles")
+                    print("✓ Cleaned up: cleanedFiles/")
+                    
+    except Exception as e:
+        print(f"⚠️ Warning: Error during cleanup: {e}")
+        # Don't raise exception - cleanup failures shouldn't break the pipeline
+
+def RunPipeline(audioFile, representativeId):
     global stt
     stt = GroqSTT()
     os.makedirs("cleanedFiles", exist_ok=True)
     
-    if hasattr(audioFile, 'filename') and hasattr(audioFile, 'file'):
-        filename = audioFile.filename
-        cleanedAudioPath = f"cleanedFiles/{filename.split('/')[-1]}"
-        
-        with open(cleanedAudioPath, "wb") as buffer:
-            content = audioFile.file.read()
-            buffer.write(content)
-        
-        audioFile.file.seek(0)
-    else:
-        raise ValueError("Invalid audio file")
-
-    PreProcessAudio(cleanedAudioPath, cleanedAudioPath)
-    # transcribe() now returns both transcription segments and diarization result
-    segmentDuration = 80000
-    insertedId = None
-    transcriptionSegments, diarization_result = stt.transcribe(cleanedAudioPath, segmentDuration)
-    diarizationSegments = [Segment(segment) for segment in list(diarization_result.itertracks(yield_label=True))]
-    speakerCounts = {}
-    for segment in diarizationSegments:
-        if segment["speaker"] not in speakerCounts:
-            speakerCounts[segment["speaker"]] = 1
+    cleanedAudioPath = None
+    
+    try:
+        if hasattr(audioFile, 'filename') and hasattr(audioFile, 'file'):
+            filename = audioFile.filename
+            cleanedAudioPath = f"cleanedFiles/{filename.split('/')[-1]}"
+            
+            with open(cleanedAudioPath, "wb") as buffer:
+                content = audioFile.file.read()
+                buffer.write(content)
+            
+            audioFile.file.seek(0)
         else:
-            speakerCounts[segment["speaker"]] += 1
-    if len(speakerCounts) > 2:
-        print("More than 2 speakers detected by pyannote. Ensuring there are only 2 speakers...")
-        print(f"Speaker counts: {speakerCounts}")
-        
-        # Sort speakers by count (descending) and keep only top 2
-        sorted_speakers = sorted(speakerCounts.items(), key=lambda x: x[1], reverse=True)
-        speakers_to_keep = [speaker for speaker, count in sorted_speakers[:2]]
-        speakers_to_remove = [speaker for speaker, count in sorted_speakers[2:]]
-        
-        print(f"Keeping speakers: {speakers_to_keep}")
-        print(f"Removing speakers: {speakers_to_remove}")
-        
-        # Remove segments from speakers we don't want to keep
-        segments_removed = 0
-        segments_to_remove = []
-        
-        for segment in diarizationSegments:
-            if segment["speaker"] in speakers_to_remove:
-                segments_to_remove.append(segment)
-                segments_removed += 1
-        
-        # Remove segments (iterate backwards to avoid index issues)
-        for segment in segments_to_remove:
-            diarizationSegments.remove(segment)
-            print(f"Removing segment: {segment}")
-        
-        print(f"Removed {segments_removed} segments from {len(speakers_to_remove)} speakers")
-        print(f"Remaining segments: {len(diarizationSegments)}")
+            raise ValueError("Invalid audio file")
 
-    mapping = UseIOU(transcriptionSegments, diarizationSegments)
-    script = []
-    for key, value in mapping.items():
-        text = transcriptionSegments[key]["text"]
-        startTime = transcriptionSegments[key]["start"]
-        endTime = transcriptionSegments[key]["end"]
-        speaker = value["speaker"]
+        PreProcessAudio(cleanedAudioPath, cleanedAudioPath)
+        segmentDuration = 80000
+        insertedId = None
+        diarizationSegments = diarization.diarize(cleanedAudioPath, representativeId)
+        transcriptionSegments = stt.transcribe(diarizationSegments, cleanedAudioPath, segmentDuration)
         
-        script.append({
-            "text": text,
-            "speaker": speaker,
-            "start": startTime,
-            "end": endTime
-        })
+        
 
-    insertedId = mongo.InsertTranscript(script, filename)
-    return str(insertedId)
+        mapping = UseIOU(transcriptionSegments, diarizationSegments)
+        script = []
+        for key, value in mapping.items():
+            text = transcriptionSegments[key]["text"]
+            startTime = transcriptionSegments[key]["start"]
+            endTime = transcriptionSegments[key]["end"]
+            speaker = value["speaker"]
+            
+            script.append({
+                "text": text,
+                "speaker": speaker,
+                "start": startTime,
+                "end": endTime
+            })
+
+        insertedId = mongo.InsertTranscript(script, filename)
+        
+        # Clean up temporary files after successful processing
+        print("\n" + "="*60)
+        print("CLEANING UP TEMPORARY FILES")
+        print("="*60)
+        CleanupTempFiles(cleanedAudioPath)
+        print("="*60 + "\n")
+        
+        return str(insertedId)
+        
+    except Exception as e:
+        # Clean up temporary files even if processing fails
+        print("\n⚠️ Error occurred, cleaning up temporary files...")
+        CleanupTempFiles(cleanedAudioPath)
+        raise e
 
 def GetScores(transcript, language, subject):
     response = llm.ScoreCall(transcript, subject)
@@ -231,17 +249,7 @@ def GetSummary(transcript, language):
             print("Raw JSON content:")
             print(json.dumps(responseDict, indent=2))
     return responseDict
-if __name__ == "__main__":
-    import sys
-    
-    if len(sys.argv) < 2:
-        print("Please provide an audio file path as argument")
-        print("Usage: python pipeline.py <audio_file>")
-        sys.exit(1)
-        
-    audio_file = sys.argv[1]
-    audio_file = audio_file
-    response, totalScore = RunPipeline(audio_file)
+
     
     
         

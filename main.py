@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os
 from typing import Dict, Any
-from fastapi import FastAPI, HTTPException, File, UploadFile
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from pipeline import RunPipeline, GetSummary, GetScores
@@ -62,7 +62,9 @@ async def get_status() -> Dict[str, Any]:
     return status_info
 
 @app.post("/process")
-async def process_audio(audioFile: UploadFile = File(...)):
+async def process_audio(audioFile: UploadFile = File(...), representativeId: str = Form(...)):
+    if representativeId is None or representativeId.strip() == "":
+        raise HTTPException(status_code=400, detail="Representative ID is required")
     if audioFile is None or audioFile.file is None:
         raise HTTPException(status_code=400, detail="Invalid audio file")
     
@@ -72,7 +74,7 @@ async def process_audio(audioFile: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=f"Invalid audio file type: {audioFile.content_type}. Expected audio file.")
     
     try:
-        insertedId = RunPipeline(audioFile)
+        insertedId = RunPipeline(audioFile, representativeId)
         return {
             "transcriptId": insertedId
         }
